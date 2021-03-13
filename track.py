@@ -1,13 +1,19 @@
+import numpy as np
 import rospy
 import sys
+import time
 import cv2
 
+from pymavlink import quaternion
+from dronekit import connect
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
 
 class Tracker:
     def __init__(self):
+        # Connect to vehicle
+        self.vehicle = connect('127.0.0.1:14551', wait_ready=True)
         # Initialize the ros node
         rospy.init_node("cv_bridge_node", anonymous=True)
         rospy.on_shutdown(self.cleanup)
@@ -47,6 +53,7 @@ class Tracker:
         # Find contours in the mask
         contours, hierarchy = cv2.findContours(
             mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        self.send_set_attitude_target(0, 20, 0, 1)
 
         if len(contours) > 0:
             # Find largest contour
@@ -59,6 +66,20 @@ class Tracker:
                 frame, [largest_contour], 0, (0, 255, 0), 2)
             frame = cv2.circle(frame, center, 5, (255, 0, 0), -1)
         return frame
+
+    def send_set_attitude_target(self, roll=0, pitch=0, yaw=0, thrust=0.5):
+        attitude = [np.radians(roll), np.radians(pitch), np.radians(yaw)]
+        attitude_quaternion = quaternion.QuaternionBase(attitude)
+
+        msg = self.vehicle.message_factory.set_attitude_target_encode(
+            0, 0, 0,  # time_boot_ms, target_system, target_component
+            0b10111000,  # type_mask https://mavlink.io/en/messages/common.html#ATTITUDE_TARGET_TYPEMASK
+            attitude_quaternion,
+            0, 0, 0,  # Rotation rates (ignored)
+            thrust  # Between 0.0 and 1.0
+        )
+
+        self.vehicle.send_mavlink(msg)
 
     def cleanup(self):
         rospy.loginfo("Shutting down tracking")
