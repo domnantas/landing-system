@@ -45,9 +45,9 @@ class Tracker:
         hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
 
         # Create a mask for selected HSV color
-        targetLowerBoundary = (0, 10, 10)
-        targetUpperBoundary = (20, 255, 255)
-        mask = cv2.inRange(hsv, targetLowerBoundary, targetUpperBoundary)
+        target_min_threshold = (0, 10, 10)
+        target_max_threshold = (20, 255, 255)
+        mask = cv2.inRange(hsv, target_min_threshold, target_max_threshold)
         # Remove small blobs in mask
         mask = cv2.erode(mask, None, iterations=2)
         mask = cv2.dilate(mask, None, iterations=2)
