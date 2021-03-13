@@ -14,6 +14,7 @@ class Tracker:
     def __init__(self):
         # Connect to vehicle
         self.vehicle = connect('127.0.0.1:14551', wait_ready=True)
+        rospy.loginfo("Connected to vehicle")
         # Initialize the ros node
         rospy.init_node("cv_bridge_node", anonymous=True)
         rospy.on_shutdown(self.cleanup)
@@ -53,7 +54,6 @@ class Tracker:
         # Find contours in the mask
         contours, hierarchy = cv2.findContours(
             mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        self.send_set_attitude_target(0, 20, 0, 1)
 
         if len(contours) > 0:
             # Find largest contour
@@ -65,6 +65,9 @@ class Tracker:
             frame = cv2.drawContours(
                 frame, [largest_contour], 0, (0, 255, 0), 2)
             frame = cv2.circle(frame, center, 5, (255, 0, 0), -1)
+
+        frame = self.draw_crosshair(frame)
+
         return frame
 
     def send_set_attitude_target(self, roll=0, pitch=0, yaw=0, thrust=0.5):
@@ -80,6 +83,19 @@ class Tracker:
         )
 
         self.vehicle.send_mavlink(msg)
+
+    def draw_crosshair(self, frame):
+        (frame_height, frame_width) = frame.shape[:2]
+        frame_width_middle = int(frame_width / 2)
+        frame_height_middle = int(frame_height / 2)
+        crosshair_offset = 15
+        frame = cv2.line(frame,
+                         (frame_width_middle - crosshair_offset, frame_height_middle),
+                         (frame_width_middle + crosshair_offset, frame_height_middle), (0, 255, 0), 1)
+        frame = cv2.line(frame,
+                         (frame_width_middle, frame_height_middle - crosshair_offset),
+                         (frame_width_middle, frame_height_middle + crosshair_offset), (0, 255, 0), 1)
+        return frame
 
     def cleanup(self):
         rospy.loginfo("Shutting down tracking")
