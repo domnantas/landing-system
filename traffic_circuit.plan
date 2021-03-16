@@ -15,7 +15,7 @@
         "hoverSpeed": 5,
         "items": [
             {
-                "AMSLAltAboveTerrain": null,
+                "AMSLAltAboveTerrain": 30,
                 "Altitude": 30,
                 "AltitudeMode": 1,
                 "autoContinue": true,
@@ -34,7 +34,7 @@
                 "type": "SimpleItem"
             },
             {
-                "AMSLAltAboveTerrain": null,
+                "AMSLAltAboveTerrain": 30,
                 "Altitude": 30,
                 "AltitudeMode": 1,
                 "autoContinue": true,
@@ -53,7 +53,7 @@
                 "type": "SimpleItem"
             },
             {
-                "AMSLAltAboveTerrain": null,
+                "AMSLAltAboveTerrain": 30,
                 "Altitude": 30,
                 "AltitudeMode": 1,
                 "autoContinue": true,
@@ -72,7 +72,7 @@
                 "type": "SimpleItem"
             },
             {
-                "AMSLAltAboveTerrain": null,
+                "AMSLAltAboveTerrain": 30,
                 "Altitude": 30,
                 "AltitudeMode": 1,
                 "autoContinue": true,
@@ -91,7 +91,7 @@
                 "type": "SimpleItem"
             },
             {
-                "AMSLAltAboveTerrain": null,
+                "AMSLAltAboveTerrain": 10,
                 "Altitude": 10,
                 "AltitudeMode": 1,
                 "autoContinue": true,
@@ -110,7 +110,7 @@
                 "type": "SimpleItem"
             },
             {
-                "AMSLAltAboveTerrain": null,
+                "AMSLAltAboveTerrain": 8,
                 "Altitude": 8,
                 "AltitudeMode": 1,
                 "autoContinue": true,
@@ -122,8 +122,8 @@
                     0,
                     0,
                     0,
-                    -35.36293184405943,
-                    149.16522553267657,
+                    -35.363061013446625,
+                    149.1650988186516,
                     8
                 ],
                 "type": "SimpleItem"
