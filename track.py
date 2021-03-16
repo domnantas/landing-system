@@ -24,7 +24,7 @@ class Tracker:
 
         self.target = None
 
-        self.target_height_offset = -100  # Raise the aiming point
+        self.target_height_offset = -60  # Raise the aiming point
 
         # Subscribe to image topic
         image_topic = "/webcam/image_raw"
@@ -93,12 +93,19 @@ class Tracker:
             # Rotate towards target
             roll_limit = 20
             pitch_limit = 5
+            target_size = cv2.contourArea(largest_contour)
+            throttle = 0.3 if target_size > 400 else 0.5
+
+            frame = cv2.putText(frame, f"Throttle: {throttle}", (10, 80),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
             self.send_set_attitude_target(
                 roll=exp_root(3/5, normalized_target_horizontal) * roll_limit,
-                pitch=exp_root(3/5, normalized_target_vertical) * pitch_limit)
+                pitch=exp_root(3/5, normalized_target_vertical) * pitch_limit, thrust=throttle)
             frame = self.draw_input(
-                frame, normalized_roll=normalized_target_horizontal, normalized_pitch=normalized_target_vertical)
+                frame,
+                normalized_roll=exp_root(3/5, normalized_target_horizontal),
+                normalized_pitch=exp_root(3/5, normalized_target_vertical))
 
         return frame
 
