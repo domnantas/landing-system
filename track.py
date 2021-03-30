@@ -1,12 +1,15 @@
 import numpy as np
 import rospy
 import sys
-import time
+from datetime import datetime
+from math import sqrt
 import cv2
+import csv
 
 from pymavlink import quaternion
 from dronekit import connect
 from sensor_msgs.msg import Image
+from gazebo_msgs.srv import GetModelState
 from cv_bridge import CvBridge
 
 
@@ -23,6 +26,8 @@ class Tracker:
         self.bridge = CvBridge()
 
         self.target = None
+        self.normalized_target_horizontal = None
+        self.normalized_target_vertical = None
 
         self.target_height_offset = -60  # Raise the aiming point
 
@@ -30,6 +35,17 @@ class Tracker:
         image_topic = "/webcam/image_raw"
         rospy.Subscriber(image_topic, Image, self.image_callback)
         rospy.loginfo(f"Subscribed to {image_topic}")
+
+        # Subscribe to odometry topic (position)
+
+        # Create telemetry file
+        current_datetime = datetime.now()
+        timestamp = current_datetime.strftime("%Y-%m-%d_%H:%M:%S")
+        self.telemetry_file = open(f'telemetry/{timestamp}.csv', mode='w')
+        fieldnames = ['timestamp', 'normalized_target_horizontal',
+                      'normalized_target_vertical', 'distance_to_target']
+        self.telemetry = csv.DictWriter(self.telemetry_file, fieldnames)
+        self.telemetry.writeheader()
 
     def image_callback(self, ros_image):
         # Convert ROS message to cv2 image
@@ -39,6 +55,23 @@ class Tracker:
         processed_image = self.process_image(frame)
 
         cv2.imshow("processed image", processed_image)
+
+        get_model_state = rospy.ServiceProxy(
+            '/gazebo/get_model_state', GetModelState)
+
+        aircraft_position = get_model_state("zephyr", "")
+
+        aircraft_distance_to_target = sqrt(
+            aircraft_position.pose.position.x ** 2 + aircraft_position.pose.position.y ** 2)
+
+        # Write telemetry
+        self.telemetry.writerow(
+            {
+                "timestamp": datetime.now().timestamp(),
+                "normalized_target_horizontal": self.normalized_target_horizontal,
+                "normalized_target_vertical": self.normalized_target_vertical,
+                "distance_to_target": aircraft_distance_to_target
+            })
         # waitKey is necessary for imshow to work
         cv2.waitKey(5)
 
@@ -72,6 +105,8 @@ class Tracker:
             frame = cv2.circle(frame, self.target, 5, (255, 0, 0), -1)
         else:
             self.target = None
+            self.normalized_target_horizontal = None
+            self.normalized_target_vertical = None
             frame = cv2.putText(frame, "No target", (10, 40),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
@@ -85,9 +120,9 @@ class Tracker:
                 frame_height / 2) + self.target_height_offset
             target_horizontal, target_vertical = self.target
 
-            normalized_target_horizontal = (
+            self.normalized_target_horizontal = (
                 target_horizontal - frame_width_middle) / frame_width_middle
-            normalized_target_vertical = -(
+            self.normalized_target_vertical = -(
                 target_vertical - frame_height_middle) / frame_height_middle
 
             # Rotate towards target
@@ -100,12 +135,14 @@ class Tracker:
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
             self.send_set_attitude_target(
-                roll=exp_root(3/5, normalized_target_horizontal) * roll_limit,
-                pitch=exp_root(3/5, normalized_target_vertical) * pitch_limit, thrust=throttle)
+                roll=exp_root(
+                    3/5, self.normalized_target_horizontal) * roll_limit,
+                pitch=exp_root(3/5, self.normalized_target_vertical) * pitch_limit, thrust=throttle)
             frame = self.draw_input(
                 frame,
-                normalized_roll=exp_root(3/5, normalized_target_horizontal),
-                normalized_pitch=exp_root(3/5, normalized_target_vertical))
+                normalized_roll=exp_root(
+                    3/5, self.normalized_target_horizontal),
+                normalized_pitch=exp_root(3/5, self.normalized_target_vertical))
 
         return frame
 
@@ -157,6 +194,7 @@ class Tracker:
 
     def cleanup(self):
         rospy.loginfo("Shutting down tracking")
+        self.telemetry_file.close()
         cv2.destroyAllWindows()
 
 
