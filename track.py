@@ -67,7 +67,7 @@ class Tracker:
         # Write telemetry
         self.telemetry.writerow(
             {
-                "timestamp": datetime.now().timestamp(),
+                "timestamp": datetime.now(),
                 "normalized_target_horizontal": self.normalized_target_horizontal,
                 "normalized_target_vertical": self.normalized_target_vertical,
                 "distance_to_target": aircraft_distance_to_target
@@ -115,19 +115,23 @@ class Tracker:
         if self.target is not None:
             (frame_height, frame_width) = frame.shape[:2]
             frame_width_middle = int(frame_width / 2)
-
-            frame_height_middle = int(
-                frame_height / 2) + self.target_height_offset
+            frame_height_middle = int(frame_height / 2)
             target_horizontal, target_vertical = self.target
 
             self.normalized_target_horizontal = (
                 target_horizontal - frame_width_middle) / frame_width_middle
-            self.normalized_target_vertical = -(
-                target_vertical - frame_height_middle) / frame_height_middle
+
+            if target_vertical <= frame_height_middle + self.target_height_offset:
+                divider = frame_height_middle + self.target_height_offset
+            else:
+                divider = frame_height_middle - self.target_height_offset
+
+            self.normalized_target_vertical = (
+                target_vertical - frame_height_middle - self.target_height_offset) / divider
 
             # Rotate towards target
             roll_limit = 20
-            pitch_limit = 5
+            pitch_limit = 10
             target_size = cv2.contourArea(largest_contour)
             throttle = 0.3 if target_size > 400 else 0.5
 
@@ -137,12 +141,12 @@ class Tracker:
             self.send_set_attitude_target(
                 roll=exp_root(
                     3/5, self.normalized_target_horizontal) * roll_limit,
-                pitch=exp_root(3/5, self.normalized_target_vertical) * pitch_limit, thrust=throttle)
+                pitch=-exp_root(3/5, self.normalized_target_vertical) * pitch_limit, thrust=throttle)
             frame = self.draw_input(
                 frame,
                 normalized_roll=exp_root(
                     3/5, self.normalized_target_horizontal),
-                normalized_pitch=exp_root(3/5, self.normalized_target_vertical))
+                normalized_pitch=-exp_root(3/5, self.normalized_target_vertical))
 
         return frame
 
@@ -188,8 +192,8 @@ class Tracker:
                               (frame_width_middle + box_width,
                                   frame_height_middle + box_width + self.target_height_offset), (0, 255, 0), 1)
         frame = cv2.circle(frame,
-                           (frame_width_middle + int(normalized_roll * box_width/2), frame_height_middle +
-                            self.target_height_offset - int(normalized_pitch * box_width/2)), 2, (255, 0, 255), -1)
+                           (frame_width_middle + int(normalized_roll * box_width), frame_height_middle +
+                            self.target_height_offset - int(normalized_pitch * box_width)), 2, (255, 0, 255), -1)
         return frame
 
     def cleanup(self):
