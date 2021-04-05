@@ -11,6 +11,7 @@ from dronekit import connect
 from sensor_msgs.msg import Image
 from gazebo_msgs.srv import GetModelState
 from cv_bridge import CvBridge
+from simple_pid import PID
 
 
 class Tracker:
@@ -44,6 +45,9 @@ class Tracker:
                       'normalized_target_vertical', 'distance_to_target']
         self.telemetry = csv.DictWriter(self.telemetry_file, fieldnames)
         self.telemetry.writeheader()
+
+        self.roll_pid = PID(1.2, 0.07, 0.05, setpoint=0)
+        self.pitch_pid = PID(0.6, 0.1, 0.05, setpoint=0)
 
     def image_callback(self, ros_image):
         # Convert ROS message to cv2 image
@@ -105,6 +109,8 @@ class Tracker:
             self.target = None
             self.normalized_target_horizontal = None
             self.normalized_target_vertical = None
+            self.roll_pid(0)
+            self.pitch_pid(0)
             frame = cv2.putText(frame, "No target", (10, 40),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
@@ -124,16 +130,16 @@ class Tracker:
 
             # Rotate towards target
             roll_limit = 20
-            pitch_limit = 5
-            throttle = (-self.normalized_target_vertical + 2.2) * 0.18
+            pitch_limit = 10
+            throttle = (-self.normalized_target_vertical + 2) * 0.2
 
             frame = cv2.putText(frame, f"Throttle: {throttle}", (10, 80),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
             self.send_set_attitude_target(
-                roll=exp_root(
-                    3/5, self.normalized_target_horizontal) * roll_limit,
-                pitch=-exp_root(3/5, self.normalized_target_vertical) * pitch_limit, thrust=throttle)
+                roll=-self.roll_pid(
+                    self.normalized_target_horizontal) * roll_limit,
+                pitch=self.pitch_pid(self.normalized_target_vertical) * pitch_limit, thrust=throttle)
             frame = self.draw_input(
                 frame,
                 normalized_roll=exp_root(
