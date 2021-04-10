@@ -35,8 +35,6 @@ class Tracker:
         rospy.Subscriber(image_topic, Image, self.image_callback)
         rospy.loginfo(f"Subscribed to {image_topic}")
 
-        # Subscribe to odometry topic (position)
-
         # Create telemetry file
         current_datetime = datetime.now()
         timestamp = current_datetime.strftime("%Y-%m-%d_%H:%M:%S")
@@ -53,7 +51,6 @@ class Tracker:
         # Convert ROS message to cv2 image
         frame = self.bridge.imgmsg_to_cv2(ros_image, "bgr8")
 
-        # cv2.imshow("input", frame)
         processed_image = self.process_image(frame)
 
         cv2.imshow("processed image", processed_image)
