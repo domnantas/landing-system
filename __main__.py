@@ -18,10 +18,12 @@ argument_parser = ArgumentParser(
     description='Target tracker for precision landing system')
 argument_parser.add_argument(
     '--simulator', action='store_true', help='run tracker in Gazebo simulation mode')
+argument_parser.add_argument(
+    '--record', action='store_true', help='record processed video')
 
 
 class Tracker:
-    def __init__(self, simulator=False):
+    def __init__(self, simulator=False, record=False):
         vehicle_address = '127.0.0.1:14551' if simulator else '/dev/serial0'
         print(f'Connecting to {vehicle_address}')
         self.vehicle = connect(vehicle_address, wait_ready=True, baud=57600)
@@ -32,9 +34,12 @@ class Tracker:
 
         self.init_telemetry()
 
+        if record:
+            self.init_recording()
+
         self.init_control_PID()
 
-        if(simulator):
+        if simulator:
             self.track_gazebo()
 
         self.fps = FPS().start()
@@ -49,6 +54,16 @@ class Tracker:
                       'normalized_target_vertical', 'distance_to_target']
         self.telemetry = csv.DictWriter(telemetry_file, fieldnames)
         self.telemetry.writeheader()
+
+    def init_recording(self):
+        self.recording = True
+        # Filename is curent timestamp
+        current_datetime = datetime.now()
+        timestamp = current_datetime.strftime('%Y-%m-%d_%H:%M:%S')
+
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        self.video_writer = cv2.VideoWriter(
+            f'recordings/{timestamp}.avi', fourcc, 40.0, (820, 616))  # TODO: get resolution from frame ;-;
 
     def init_control_PID(self):
         self.roll_pid = PID(1.2, 0.07, 0.05, setpoint=0)
@@ -68,6 +83,9 @@ class Tracker:
     def ros_image_callback(self, ros_image, bridge):
         # Convert ROS message to cv2 image
         frame = bridge.imgmsg_to_cv2(ros_image, 'bgr8')
+        (frame_height, frame_width) = frame.shape[:2]
+        frame = cv2.resize(frame, (int(frame_width/2), int(frame_height/2)))
+
         self.find_target(frame)
         self.find_distance_to_target()
         frame = self.draw_crosshair(frame)
@@ -77,6 +95,9 @@ class Tracker:
             self.control_aircraft()
             frame = self.draw_target(frame)
             frame = self.draw_input(frame)
+
+        if self.recording:
+            self.video_writer.write(frame)
 
         cv2.imshow('camera', frame)
         self.write_telemetry()
@@ -102,6 +123,8 @@ class Tracker:
             mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
 
         if len(contours) > 0:
+            if self.normalized_target is None:
+                print('Target detected')
             # Find largest contour
             largest_contour = max(contours, key=cv2.contourArea)
             # Find center point of contour
@@ -122,7 +145,8 @@ class Tracker:
                 normalized_target_horizontal,
                 normalized_target_vertical
             ]
-        elif (self.normalized_target is not None):
+        elif self.normalized_target is not None:
+            print('Target lost')
             self.normalized_target = None
             # Reset PID
             self.init_control_PID()
@@ -211,7 +235,7 @@ class Tracker:
         return frame
 
     def write_telemetry(self):
-        if (self.normalized_target):
+        if self.normalized_target:
             normalized_target_horizontal, normalized_target_vertical = self.normalized_target
         else:
             normalized_target_horizontal = None
@@ -229,7 +253,7 @@ class Tracker:
 def main():
     args = argument_parser.parse_args()
 
-    Tracker(simulator=args.simulator)
+    Tracker(simulator=args.simulator, record=args.record)
 
     rospy.spin()
 
