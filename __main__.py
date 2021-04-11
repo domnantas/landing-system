@@ -1,18 +1,14 @@
 from argparse import ArgumentParser
-from gazebo_msgs.srv import GetModelState
-from sensor_msgs.msg import Image
 from pymavlink import quaternion
 from dronekit import connect
 from datetime import datetime
-from cv_bridge import CvBridge
 from imutils.video import FPS
 from simple_pid import PID
 from math import sqrt
 import numpy as np
-import rospy
+import time
 import csv
 import cv2
-
 
 argument_parser = ArgumentParser(
     description='Target tracker for precision landing system')
@@ -26,23 +22,24 @@ class Tracker:
     def __init__(self, simulator=False, record=False):
         vehicle_address = '127.0.0.1:14551' if simulator else '/dev/serial0'
         print(f'Connecting to {vehicle_address}')
-        self.vehicle = connect(vehicle_address, wait_ready=True, baud=57600)
+        self.vehicle = connect(vehicle_address, wait_ready=False, baud=57600)
         print('Connected to vehicle')
 
         self.normalized_target = None
         self.aircraft_distance_to_target = None
 
         self.init_telemetry()
-
-        if record:
-            self.init_recording()
-
         self.init_control_PID()
+        self.fps = FPS().start()
+        self.record = record
+
+        if self. record:
+            self.init_record()
 
         if simulator:
             self.track_gazebo()
-
-        self.fps = FPS().start()
+        else:
+            self.track_pixhawk()
 
     def init_telemetry(self):
         # Filename is curent timestamp
@@ -55,21 +52,24 @@ class Tracker:
         self.telemetry = csv.DictWriter(telemetry_file, fieldnames)
         self.telemetry.writeheader()
 
-    def init_recording(self):
-        self.recording = True
+    def init_record(self):
         # Filename is curent timestamp
         current_datetime = datetime.now()
         timestamp = current_datetime.strftime('%Y-%m-%d_%H:%M:%S')
 
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         self.video_writer = cv2.VideoWriter(
-            f'recordings/{timestamp}.avi', fourcc, 40.0, (820, 616))  # TODO: get resolution from frame ;-;
+            f'recordings/{timestamp}.avi', fourcc, 40.0, (640, 480))  # TODO: get resolution from frame ;-;
 
     def init_control_PID(self):
         self.roll_pid = PID(1.2, 0.07, 0.05, setpoint=0)
         self.pitch_pid = PID(0.6, 0.1, 0.05, setpoint=0)
 
     def track_gazebo(self):
+        from gazebo_msgs.srv import GetModelState
+        from sensor_msgs.msg import Image
+        from cv_bridge import CvBridge
+        import rospy
         # Initialize the ros node
         rospy.init_node('cv_bridge_node', anonymous=True)
         bridge = CvBridge()
@@ -81,13 +81,35 @@ class Tracker:
         print(f'Subscribed to {image_topic}')
 
     def ros_image_callback(self, ros_image, bridge):
+        self.find_distance_to_target()
         # Convert ROS message to cv2 image
         frame = bridge.imgmsg_to_cv2(ros_image, 'bgr8')
+        self.track(frame)
+
+    def track_pixhawk(self):
+        from imutils.video.pivideostream import PiVideoStream
+        videoStream = PiVideoStream(resolution=(
+            640, 480), framerate=20).start()
+        camera = videoStream.camera
+        camera.iso = 30
+        # Wait for automatic gain control to settle
+        time.sleep(2)
+        camera.shutter_speed = camera.exposure_speed
+        camera.exposure_mode = 'off'
+        awb_gains = camera.awb_gains
+        camera.awb_mode = 'off'
+        camera.awb_gains = awb_gains
+
+        while True:
+            frame = videoStream.read()
+            # frame = imutils.resize(frame, width=400)
+            self.track(frame)
+
+    def track(self, frame):
         (frame_height, frame_width) = frame.shape[:2]
-        frame = cv2.resize(frame, (int(frame_width/2), int(frame_height/2)))
+        # frame = cv2.resize(frame, (int(frame_width/2), int(frame_height/2)))
 
         self.find_target(frame)
-        self.find_distance_to_target()
         frame = self.draw_crosshair(frame)
         frame = self.draw_fps(frame)
 
@@ -96,7 +118,7 @@ class Tracker:
             frame = self.draw_target(frame)
             frame = self.draw_input(frame)
 
-        if self.recording:
+        if self.record:
             self.video_writer.write(frame)
 
         cv2.imshow('camera', frame)
@@ -111,8 +133,8 @@ class Tracker:
         # Convert to HSV colorspace because it makes tresholding based on color easier
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         # Create a mask for selected HSV color
-        target_min_threshold = (0, 10, 10)
-        target_max_threshold = (20, 255, 255)
+        target_min_threshold = (0, 0, 10)
+        target_max_threshold = (255, 160, 255)
         mask = cv2.inRange(
             frame, target_min_threshold, target_max_threshold)
         # Remove small blobs in mask
@@ -255,7 +277,8 @@ def main():
 
     Tracker(simulator=args.simulator, record=args.record)
 
-    rospy.spin()
+    if args.simulator:
+        rospy.spin()
 
 
 main()

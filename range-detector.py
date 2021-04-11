@@ -10,6 +10,7 @@
 import cv2
 import argparse
 from operator import xor
+import time
 
 
 def callback(value):
@@ -72,25 +73,35 @@ def main():
         else:
             frame_to_thresh = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     else:
-        camera = cv2.VideoCapture(0)
+        from imutils.video.pivideostream import PiVideoStream
+        videoStream = PiVideoStream(resolution=(
+            640, 480), framerate=20).start()
+        camera = videoStream.camera
+        camera.iso = 30
+        # Wait for automatic gain control to settle
+        time.sleep(2)
+        camera.shutter_speed = camera.exposure_speed
+        camera.exposure_mode = 'off'
+        awb_gains = camera.awb_gains
+        camera.awb_mode = 'off'
+        camera.awb_gains = awb_gains
 
     setup_trackbars(range_filter)
 
     while True:
         if args['webcam']:
-            ret, image = camera.read()
-
-            if not ret:
-                break
+            image = videoStream.read()
 
             if range_filter == 'RGB':
                 frame_to_thresh = image.copy()
             else:
                 frame_to_thresh = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-        v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_trackbar_values(range_filter)
+        v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_trackbar_values(
+            range_filter)
 
-        thresh = cv2.inRange(frame_to_thresh, (v1_min, v2_min, v3_min), (v1_max, v2_max, v3_max))
+        thresh = cv2.inRange(
+            frame_to_thresh, (v1_min, v2_min, v3_min), (v1_max, v2_max, v3_max))
 
         if args['preview']:
             preview = cv2.bitwise_and(image, image, mask=thresh)
