@@ -5,6 +5,7 @@ from pymavlink import quaternion
 from dronekit import connect
 from datetime import datetime
 from cv_bridge import CvBridge
+from imutils.video import FPS
 from simple_pid import PID
 from math import sqrt
 import numpy as np
@@ -35,6 +36,8 @@ class Tracker:
 
         if(simulator):
             self.track_gazebo()
+
+        self.fps = FPS().start()
 
     def init_telemetry(self):
         # Filename is curent timestamp
@@ -68,6 +71,7 @@ class Tracker:
         self.find_target(frame)
         self.find_distance_to_target()
         frame = self.draw_crosshair(frame)
+        frame = self.draw_fps(frame)
 
         if self.normalized_target:
             self.control_aircraft()
@@ -196,6 +200,14 @@ class Tracker:
         frame = cv2.circle(frame,
                            (frame_width_middle + int(self.roll_input * box_width),
                             frame_height_middle - int(self.pitch_input * box_width)), 2, (255, 0, 255), -1)
+        return frame
+
+    def draw_fps(self, frame):
+        self.fps.update()
+        self.fps.stop()
+        cv2.putText(frame, f"{int(self.fps.fps())}", (10, 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
         return frame
 
     def write_telemetry(self):
