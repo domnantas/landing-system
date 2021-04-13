@@ -22,11 +22,16 @@
 
 namespace gazebo
 {
-  class AnimatedBox : public ModelPlugin
+  class WindAnimation : public ModelPlugin
   {
   public:
-    void Load(physics::ModelPtr _parent, sdf::ElementPtr /*_sdf*/)
+    void Load(physics::ModelPtr _parent, sdf::ElementPtr _sdf)
     {
+
+      double multiplier;
+
+      this->LoadParam(_sdf, "multiplier", multiplier, 1.0);
+
       // Store the pointer to the model
       this->model = _parent;
 
@@ -40,23 +45,23 @@ namespace gazebo
 
       // set starting location of the box
       key = anim->CreateKeyFrame(0);
-      key->Rotation(ignition::math::Quaterniond(0.11, -0.07, 0));
+      key->Rotation(ignition::math::Quaterniond(0.11 * multiplier, -0.07 * multiplier, 0));
 
       key = anim->CreateKeyFrame(1.0);
-      key->Rotation(ignition::math::Quaterniond(0.07, 0.0, 0));
+      key->Rotation(ignition::math::Quaterniond(0.07 * multiplier, 0.0 * multiplier, 0));
 
       key = anim->CreateKeyFrame(2.0);
-      key->Rotation(ignition::math::Quaterniond(0.11, 0.06, 0));
+      key->Rotation(ignition::math::Quaterniond(0.11 * multiplier, 0.06 * multiplier, 0));
 
       key = anim->CreateKeyFrame(3.0);
-      key->Rotation(ignition::math::Quaterniond(0.13, 0.13, 0));
+      key->Rotation(ignition::math::Quaterniond(0.13 * multiplier, 0.13 * multiplier, 0));
 
       key = anim->CreateKeyFrame(4.0);
-      key->Rotation(ignition::math::Quaterniond(0.09, -0.03, 0));
+      key->Rotation(ignition::math::Quaterniond(0.09 * multiplier, -0.03 * multiplier, 0));
 
       // set final location equal to starting location
       key = anim->CreateKeyFrame(5.0);
-      key->Rotation(ignition::math::Quaterniond(0.11, -0.07, 0));
+      key->Rotation(ignition::math::Quaterniond(0.11 * multiplier, -0.07 * multiplier, 0));
 
       // set the animation
       _parent->SetAnimation(anim);
@@ -72,5 +77,5 @@ namespace gazebo
   };
 
   // Register this plugin with the simulator
-  GZ_REGISTER_MODEL_PLUGIN(AnimatedBox)
+  GZ_REGISTER_MODEL_PLUGIN(WindAnimation)
 }
