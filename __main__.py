@@ -2,7 +2,6 @@ from argparse import ArgumentParser
 from pymavlink import quaternion
 from dronekit import connect
 from datetime import datetime
-from imutils.video import FPS
 from simple_pid import PID
 from math import sqrt
 import numpy as np
@@ -30,7 +29,6 @@ class Tracker:
 
         self.init_telemetry()
         self.init_control_PID()
-        self.fps = FPS().start()
         self.record = record
 
         if self. record:
@@ -59,7 +57,7 @@ class Tracker:
 
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         self.video_writer = cv2.VideoWriter(
-            f'recordings/{timestamp}.avi', fourcc, 40.0, (640, 480))  # TODO: get resolution from frame ;-;
+            f'recordings/{timestamp}.avi', fourcc, 40.0, (640, 480))
 
     def init_control_PID(self):
         self.roll_pid = PID(1.2, 0.07, 0.05, setpoint=0)
@@ -89,20 +87,20 @@ class Tracker:
     def track_pixhawk(self):
         from imutils.video.pivideostream import PiVideoStream
         videoStream = PiVideoStream(resolution=(
-            640, 480), framerate=20).start()
+            640, 480), framerate=40).start()
         camera = videoStream.camera
-        camera.iso = 30
+        camera.iso = 100
         # Wait for automatic gain control to settle
         time.sleep(2)
-        camera.shutter_speed = camera.exposure_speed
         camera.exposure_mode = 'off'
+        camera.shutter_speed = 5000
+        camera.exposure_compensation = 0
         awb_gains = camera.awb_gains
         camera.awb_mode = 'off'
         camera.awb_gains = awb_gains
 
         while True:
             frame = videoStream.read()
-            # frame = imutils.resize(frame, width=400)
             self.track(frame)
 
     def track(self, frame):
@@ -111,7 +109,6 @@ class Tracker:
 
         self.find_target(frame)
         frame = self.draw_crosshair(frame)
-        frame = self.draw_fps(frame)
 
         if self.normalized_target:
             self.control_aircraft()
@@ -246,14 +243,6 @@ class Tracker:
         frame = cv2.circle(frame,
                            (frame_width_middle + int(self.roll_input * box_width),
                             frame_height_middle - int(self.pitch_input * box_width)), 2, (255, 0, 255), -1)
-        return frame
-
-    def draw_fps(self, frame):
-        self.fps.update()
-        self.fps.stop()
-        cv2.putText(frame, f"{int(self.fps.fps())}", (10, 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
         return frame
 
     def write_telemetry(self):
