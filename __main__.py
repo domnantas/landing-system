@@ -64,7 +64,6 @@ class Tracker:
         self.pitch_pid = PID(0.6, 0.1, 0.05, setpoint=0)
 
     def track_gazebo(self):
-        from gazebo_msgs.srv import GetModelState
         from sensor_msgs.msg import Image
         from cv_bridge import CvBridge
         import rospy
@@ -201,6 +200,9 @@ class Tracker:
         self.vehicle.send_mavlink(msg)
 
     def find_distance_to_target(self):
+        import rospy
+        from gazebo_msgs.srv import GetModelState
+
         get_model_state = rospy.ServiceProxy(
             '/gazebo/get_model_state', GetModelState)
 
@@ -267,6 +269,8 @@ def main():
     Tracker(simulator=args.simulator, record=args.record)
 
     if args.simulator:
+        import rospy
+
         rospy.spin()
 
 
