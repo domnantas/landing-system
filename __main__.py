@@ -65,8 +65,10 @@ class Tracker:
             f'recordings/{timestamp}.avi', fourcc, 40.0, (640, 480))
 
     def init_control_PID(self):
-        self.roll_pid = PID(1.0, 0.1, 0.05, setpoint=0)
-        self.pitch_pid = PID(1.0, 0.1, 0.05, setpoint=0)
+        self.roll_pid = PID(1.2, 0.07, 0.05, setpoint=0,
+                            output_limits=(-1.0, 1.0))
+        self.pitch_pid = PID(0.6, 0.1, 0.05, setpoint=0,
+                             output_limits=(-1.0, 1.0))
 
     def track_gazebo(self):
         from sensor_msgs.msg import Image
@@ -176,11 +178,14 @@ class Tracker:
                 normalized_target_horizontal,
                 normalized_target_vertical
             ]
-        elif self.normalized_target is not None:
-            print('Target lost')
-            self.normalized_target = None
+        else:
             # Reset PID
-            self.init_control_PID()
+            self.roll_pid(0)
+            self.pitch_pid(0)
+
+            if self.normalized_target is not None:
+                print('Target lost')
+                self.normalized_target = None
 
     def control_aircraft(self):
         normalized_target_horizontal, normalized_target_vertical = self.normalized_target
@@ -256,7 +261,7 @@ class Tracker:
                               (frame_width_middle + half_box_width,
                                frame_height_middle + half_box_width), (0, 255, 0), 1)
         frame = cv2.circle(frame,
-                           (frame_width_middle + int(self.roll_input * half_box_width),
+                           (frame_width_middle - int(self.roll_input * half_box_width),
                             frame_height_middle - int(self.pitch_input * half_box_width)),
                            2, (255, 0, 255), -1)
         return frame
