@@ -14,11 +14,13 @@ argument_parser = ArgumentParser(
 argument_parser.add_argument(
     '--simulator', action='store_true', help='run tracker in Gazebo simulation mode')
 argument_parser.add_argument(
+    '--telemetry', action='store_true', help='track aircraft telemetry')
+argument_parser.add_argument(
     '--record', action='store_true', help='record processed video')
 
 
 class Tracker:
-    def __init__(self, simulator=False, record=False):
+    def __init__(self, simulator=False, telemetry=False, record=False):
         vehicle_address = '127.0.0.1:14551' if simulator else '/dev/serial0'
         print(f'Connecting to {vehicle_address}')
         self.vehicle = connect(vehicle_address, wait_ready=False, baud=57600)
@@ -27,11 +29,14 @@ class Tracker:
         self.normalized_target = None
         self.aircraft_distance_to_target = None
 
-        self.init_telemetry()
         self.init_control_PID()
-        self.record = record
 
-        if self. record:
+        self.telemetry_enabled = telemetry
+        if self.telemetry_enabled:
+            self.init_telemetry()
+
+        self.record_enabled = record
+        if self.record_enabled:
             self.init_record()
 
         if simulator:
@@ -60,8 +65,8 @@ class Tracker:
             f'recordings/{timestamp}.avi', fourcc, 40.0, (640, 480))
 
     def init_control_PID(self):
-        self.roll_pid = PID(1.2, 0.07, 0.05, setpoint=0)
-        self.pitch_pid = PID(0.6, 0.1, 0.05, setpoint=0)
+        self.roll_pid = PID(1.0, 0.1, 0.05, setpoint=0)
+        self.pitch_pid = PID(1.0, 0.1, 0.05, setpoint=0)
 
     def track_gazebo(self):
         from sensor_msgs.msg import Image
@@ -76,6 +81,7 @@ class Tracker:
         rospy.Subscriber(image_topic, Image,
                          self.ros_image_callback, callback_args=(bridge))
         print(f'Subscribed to {image_topic}')
+        rospy.spin()
 
     def ros_image_callback(self, ros_image, bridge):
         self.find_distance_to_target()
@@ -114,11 +120,12 @@ class Tracker:
             frame = self.draw_target(frame)
             frame = self.draw_input(frame)
 
-        if self.record:
+        if self.record_enabled:
             self.video_writer.write(frame)
 
         cv2.imshow('camera', frame)
-        self.write_telemetry()
+        if self.telemetry_enabled:
+            self.write_telemetry()
 
         # waitKey is necessary for imshow to work
         cv2.waitKey(5)
@@ -129,8 +136,14 @@ class Tracker:
         # Convert to HSV colorspace because it makes tresholding based on color easier
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         # Create a mask for selected HSV color
-        target_min_threshold = (0, 0, 10)
-        target_max_threshold = (255, 160, 255)
+        # Infrared:
+        #   min: (0, 0, 1)
+        #   max: (255, 160, 255)
+        # Red:
+        #   min: (0, 1, 0)
+        #   max: (10, 255, 255)
+        target_min_threshold = (0, 1, 0)
+        target_max_threshold = (10, 255, 255)
         mask = cv2.inRange(
             frame, target_min_threshold, target_max_threshold)
         # Remove small blobs in mask
@@ -171,8 +184,8 @@ class Tracker:
 
     def control_aircraft(self):
         normalized_target_horizontal, normalized_target_vertical = self.normalized_target
-        throttle = (-normalized_target_vertical + 2) * 0.2
 
+        throttle = (-normalized_target_vertical + 2) * 0.2
         self.roll_input = self.roll_pid(normalized_target_horizontal)
         self.pitch_input = self.pitch_pid(normalized_target_vertical)
 
@@ -236,15 +249,16 @@ class Tracker:
         (frame_height, frame_width) = frame.shape[:2]
         frame_width_middle = int(frame_width / 2)
         frame_height_middle = int(frame_height / 2)
-        box_width = 40
+        half_box_width = 40
         frame = cv2.rectangle(frame,
-                              (frame_width_middle - box_width,
-                               frame_height_middle - box_width),
-                              (frame_width_middle + box_width,
-                               frame_height_middle + box_width), (0, 255, 0), 1)
+                              (frame_width_middle - half_box_width,
+                               frame_height_middle - half_box_width),
+                              (frame_width_middle + half_box_width,
+                               frame_height_middle + half_box_width), (0, 255, 0), 1)
         frame = cv2.circle(frame,
-                           (frame_width_middle + int(self.roll_input * box_width),
-                            frame_height_middle - int(self.pitch_input * box_width)), 2, (255, 0, 255), -1)
+                           (frame_width_middle + int(self.roll_input * half_box_width),
+                            frame_height_middle - int(self.pitch_input * half_box_width)),
+                           2, (255, 0, 255), -1)
         return frame
 
     def write_telemetry(self):
@@ -266,12 +280,9 @@ class Tracker:
 def main():
     args = argument_parser.parse_args()
 
-    Tracker(simulator=args.simulator, record=args.record)
-
-    if args.simulator:
-        import rospy
-
-        rospy.spin()
+    Tracker(simulator=args.simulator,
+            telemetry=args.telemetry,
+            record=args.record)
 
 
 main()
