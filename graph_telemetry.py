@@ -9,11 +9,10 @@ with open(telemetry_file_path) as telemetry_csv_file:
     telemetry = pd.read_csv(telemetry_csv_file, index_col=0, parse_dates=True)
     telemetry['total_error'] = (telemetry['normalized_target_vertical'].abs(
     ) + telemetry['normalized_target_horizontal'].abs()) / 2
-    telemetry['normalized_target_horizontal'].plot(
-        xlabel="Laikas", ylabel="Santykinė paklaida (nuo -1 iki 1)", ylim=(-1.0, 1.0))
+    telemetry['normalized_target_horizontal'].plot(ylim=(-1.0, 1.0))
     telemetry['normalized_target_vertical'].plot()
-    telemetry['total_error'].plot(linestyle=':')
-    print(type(telemetry['normalized_target_vertical']))
+    telemetry['total_error'].plot(
+        linestyle=':', xlabel="Laikas", ylabel="Santykinė paklaida (nuo -1 iki 1)")
     plt.axhline(y=0, color='r', linestyle='--')
     plt.legend(["Horizontali santykinė paklaida",
                 "Vertikali santykinė paklaida",
