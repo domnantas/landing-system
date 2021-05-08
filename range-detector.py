@@ -1,12 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-# USAGE: You need to specify a filter and "only one" image source
-#
-# (python) range-detector --filter RGB --image /path/to/image.png
-# or
-# (python) range-detector --filter HSV --webcam
-
 import cv2
 import argparse
 from operator import xor
@@ -15,21 +6,11 @@ import time
 
 def get_arguments():
     ap = argparse.ArgumentParser()
-    ap.add_argument('-f', '--filter', required=True,
-                    help='Range filter. RGB or HSV')
-    source = ap.add_mutually_exclusive_group(required=True)
-    source.add_argument('-i', '--image',
-                        help='Path to the image')
-    source.add_argument('-w', '--webcam',
-                        help='Use webcam',
-                        action='store_true')
-    source.add_argument('-s', '--simulator',
-                        help='Use camera input from Gazebo',
-                        action='store_true',)
+    ap.add_argument('-s', '--source',
+                        help='Choose either camera or simulator as source',
+                        required=True
+                        choices=['camera', 'simulator'])
     args = vars(ap.parse_args())
-
-    if not args['filter'].upper() in ['RGB', 'HSV']:
-        ap.error("Filter should be either RGB or HSV.")
 
     return args
 
@@ -38,40 +19,35 @@ def callback(value):
     pass
 
 
-def setup_trackbars(range_filter):
+def setup_trackbars():
     cv2.namedWindow("Trackbars", 0)
 
     cv2.createTrackbar("SHUTTER_SPEED", "Trackbars", 5000, 10000, callback)
     for i in ["MIN", "MAX"]:
         v = 0 if i == "MIN" else 255
 
-        for j in range_filter:
+        for j in "HSV":
             cv2.createTrackbar("%s_%s" % (j, i), "Trackbars", v, 255, callback)
 
 
-def get_trackbar_values(range_filter):
+def get_trackbar_values():
     values = []
 
     for i in ["MIN", "MAX"]:
-        for j in range_filter:
+        for j in "HSV":
             v = cv2.getTrackbarPos("%s_%s" % (j, i), "Trackbars")
             values.append(v)
 
     return values
 
 
-def process_image(image, range_filter, camera=None):
-    v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_trackbar_values(
-        range_filter)
+def process_image(image, camera=None):
+    v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_trackbar_values()
 
-    if camera:
-        pass
-        # camera.shutter_speed = cv2.getTrackbarPos("SHUTTER_SPEED", "Trackbars")
-
-    if range_filter == 'RGB':
-        frame_to_thresh = image.copy()
-    else:
-        frame_to_thresh = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+#     if camera:
+#         camera.shutter_speed = cv2.getTrackbarPos("SHUTTER_SPEED", "Trackbars")
+    
+    frame_to_thresh = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
     thresh = cv2.inRange(
         frame_to_thresh, (v1_min, v2_min, v3_min), (v1_max, v2_max, v3_max))
@@ -87,18 +63,12 @@ def process_image(image, range_filter, camera=None):
 def main():
     args = get_arguments()
 
-    range_filter = args['filter'].upper()
+    setup_trackbars()
 
-    setup_trackbars(range_filter)
-
-    if args['image']:
-        image = cv2.imread(args['image'])
-
-        process_image(image, range_filter)
-    elif args['webcam']:
+    if args['source'] == 'camera':
         from imutils.video.pivideostream import PiVideoStream
         videoStream = PiVideoStream(resolution=(
-            640, 480), framerate=20).start()
+            640, 480), framerate=40).start()
         camera = videoStream.camera
         # Wait for automatic gain control to settle
         time.sleep(2)
@@ -111,9 +81,9 @@ def main():
 
         while True:
             image = videoStream.read()
-            process_image(image, range_filter, camera)
+            process_image(image, camera)
 
-    elif args['simulator']:
+    elif args['source'] == 'simulator':
         from sensor_msgs.msg import Image
         from cv_bridge import CvBridge
         import rospy
