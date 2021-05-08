@@ -49,15 +49,15 @@ def process_image(image, camera=None):
         camera.iso = cv2.getTrackbarPos("ISO", "Trackbars")
         camera.shutter_speed = cv2.getTrackbarPos("SHUTTER_SPEED", "Trackbars")
     
-    frame_to_thresh = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    hsv_frame = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-    thresh = cv2.inRange(
-        frame_to_thresh, (v1_min, v2_min, v3_min), (v1_max, v2_max, v3_max))
+    threshold = cv2.inRange(
+        hsv_frame, (v1_min, v2_min, v3_min), (v1_max, v2_max, v3_max))
 
-    preview = cv2.bitwise_and(image, image, mask=thresh)
+    preview = cv2.bitwise_and(image, image, mask=threshold)
     cv2.imshow("Preview", preview)
     cv2.imshow("Original", image)
-    cv2.imshow("Thresh", thresh)
+    cv2.imshow("Threshold", threshold)
 
     cv2.waitKey(5)
 
