@@ -1,15 +1,26 @@
-from picamera import PiCamera
-from picamera.array import PiRGBArray
+from imutils.video.pivideostream import PiVideoStream
+from imutils.video import FPS
 import time
+import cv2
 
-frames = 400
+fps_counter = FPS()
+videoStream = PiVideoStream(
+    resolution=(640, 480), framerate=40, sensor_mode=4).start()
+camera = videoStream.camera
 
-camera = PiCamera(framerate=40)
 time.sleep(2)
-camera.resolution = (640, 480)
-rawCapture = PiRGBArray(camera, size=camera.resolution)
-start = time.time()
-for frame, i in zip(camera.capture_continuous(rawCapture, format="bgr", use_video_port=True), range(frames)):
-    image = frame.array
-    rawCapture.truncate(0)
-print("Time for {0} frames: {1} seconds".format(frames, time.time()-start))
+
+# awb_gains = camera.awb_gains
+# camera.awb_mode = 'off'
+# camera.awb_gains = awb_gains
+fps_counter.start()
+
+while True:
+    frame = videoStream.read()
+    fps_counter.update()
+    fps_counter.stop()
+    frame = cv2.putText(frame, f"{fps_counter.fps()}",
+                        (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+    cv2.imshow('camera', frame)
+    cv2.waitKey(5)
