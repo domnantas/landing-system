@@ -13,20 +13,6 @@ from operator import xor
 import time
 
 
-def callback(value):
-    pass
-
-
-def setup_trackbars(range_filter):
-    cv2.namedWindow("Trackbars", 0)
-
-    for i in ["MIN", "MAX"]:
-        v = 0 if i == "MIN" else 255
-
-        for j in range_filter:
-            cv2.createTrackbar("%s_%s" % (j, i), "Trackbars", v, 255, callback)
-
-
 def get_arguments():
     ap = argparse.ArgumentParser()
     ap.add_argument('-f', '--filter', required=True,
@@ -48,6 +34,21 @@ def get_arguments():
     return args
 
 
+def callback(value):
+    pass
+
+
+def setup_trackbars(range_filter):
+    cv2.namedWindow("Trackbars", 0)
+
+    cv2.createTrackbar("SHUTTER_SPEED", "Trackbars", 5000, 10000, callback)
+    for i in ["MIN", "MAX"]:
+        v = 0 if i == "MIN" else 255
+
+        for j in range_filter:
+            cv2.createTrackbar("%s_%s" % (j, i), "Trackbars", v, 255, callback)
+
+
 def get_trackbar_values(range_filter):
     values = []
 
@@ -59,9 +60,13 @@ def get_trackbar_values(range_filter):
     return values
 
 
-def process_image(image, range_filter):
+def process_image(image, range_filter, camera=None):
     v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_trackbar_values(
         range_filter)
+
+    if camera:
+        pass
+        # camera.shutter_speed = cv2.getTrackbarPos("SHUTTER_SPEED", "Trackbars")
 
     if range_filter == 'RGB':
         frame_to_thresh = image.copy()
@@ -95,18 +100,18 @@ def main():
         videoStream = PiVideoStream(resolution=(
             640, 480), framerate=20).start()
         camera = videoStream.camera
-        camera.iso = 30
         # Wait for automatic gain control to settle
         time.sleep(2)
-        camera.shutter_speed = camera.exposure_speed
-        camera.exposure_mode = 'off'
+        # camera.shutter_speed = 4000
+        camera.exposure_mode = 'spotlight'
+        camera.iso = 800
         awb_gains = camera.awb_gains
         camera.awb_mode = 'off'
         camera.awb_gains = awb_gains
 
         while True:
             image = videoStream.read()
-            process_image(image, range_filter)
+            process_image(image, range_filter, camera)
 
     elif args['simulator']:
         from sensor_msgs.msg import Image
