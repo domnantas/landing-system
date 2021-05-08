@@ -21,8 +21,9 @@ def callback(value):
 
 def setup_trackbars():
     cv2.namedWindow("Trackbars", 0)
-
-    cv2.createTrackbar("SHUTTER_SPEED", "Trackbars", 5000, 10000, callback)
+    
+    cv2.createTrackbar("ISO", "Trackbars", 0, 800, callback)
+    cv2.createTrackbar("SHUTTER_SPEED", "Trackbars", 0, 10000, callback)
     for i in ["MIN", "MAX"]:
         v = 0 if i == "MIN" else 255
 
@@ -44,8 +45,9 @@ def get_trackbar_values():
 def process_image(image, camera=None):
     v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_trackbar_values()
 
-#     if camera:
-#         camera.shutter_speed = cv2.getTrackbarPos("SHUTTER_SPEED", "Trackbars")
+    if camera:
+        camera.iso = cv2.getTrackbarPos("ISO", "Trackbars")
+        camera.shutter_speed = cv2.getTrackbarPos("SHUTTER_SPEED", "Trackbars")
     
     frame_to_thresh = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
