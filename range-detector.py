@@ -2,7 +2,15 @@ import cv2
 import argparse
 from operator import xor
 import time
+import configparser
 
+def read_config(parser):
+    with open('tracker.cfg', 'r') as configfile:
+        parser.read_file(configfile)
+        
+def write_config(parser):
+    with open('tracker.cfg', 'w') as configfile:
+        parser.write(configfile)
 
 def get_arguments():
     ap = argparse.ArgumentParser()
@@ -19,16 +27,16 @@ def callback(value):
     pass
 
 
-def setup_trackbars():
+def setup_trackbars(config):
     cv2.namedWindow("Trackbars", 0)
     
-    cv2.createTrackbar("ISO", "Trackbars", 0, 800, callback)
-    cv2.createTrackbar("SHUTTER_SPEED", "Trackbars", 0, 10000, callback)
+    cv2.createTrackbar("ISO", "Trackbars", config['camera'].get('iso'), 800, callback)
+    cv2.createTrackbar("SHUTTER_SPEED", "Trackbars", config['camera'].get('shutter_speed, 10000, callback)
     for i in ["MIN", "MAX"]:
         v = 0 if i == "MIN" else 255
-
+        
         for j in "HSV":
-            cv2.createTrackbar("%s_%s" % (j, i), "Trackbars", v, 255, callback)
+            cv2.createTrackbar(f'{j}_{i}', "Trackbars", config['threshold'].get(f'{j}_{i}', v), 255, callback)
 
 
 def get_trackbar_values():
@@ -63,11 +71,14 @@ def process_image(image, camera=None):
 
 
 def main():
+    config = configparser.ConfigParser()
+    read_config(config)
     args = get_arguments()
 
-    setup_trackbars()
+    setup_trackbars(config)
 
     if args['source'] == 'camera':
+        
         from imutils.video.pivideostream import PiVideoStream
         videoStream = PiVideoStream(resolution=(
             640, 480), framerate=40).start()
@@ -76,7 +87,7 @@ def main():
         time.sleep(2)
         # camera.shutter_speed = 4000
         camera.exposure_mode = 'spotlight'
-        camera.iso = 800
+        camera.iso = config['camera'].get('iso', 400)
         awb_gains = camera.awb_gains
         camera.awb_mode = 'off'
         camera.awb_gains = awb_gains
