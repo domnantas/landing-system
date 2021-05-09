@@ -3,21 +3,27 @@ import argparse
 from operator import xor
 import time
 import configparser
+import atexit
 
-def read_config(parser):
+config = configparser.ConfigParser()
+
+
+def read_config():
     with open('tracker.cfg', 'r') as configfile:
-        parser.read_file(configfile)
-        
-def write_config(parser):
+        config.read_file(configfile)
+
+
+def write_config():
     with open('tracker.cfg', 'w') as configfile:
-        parser.write(configfile)
+        config.write(configfile)
+
 
 def get_arguments():
     ap = argparse.ArgumentParser()
     ap.add_argument('-s', '--source',
-                        help='Choose either camera or simulator as source',
-                        required=True
-                        choices=['camera', 'simulator'])
+                    help='Choose either camera or simulator as source',
+                    required=True,
+                    choices=['camera', 'simulator'])
     args = vars(ap.parse_args())
 
     return args
@@ -27,36 +33,46 @@ def callback(value):
     pass
 
 
-def setup_trackbars(config):
+def setup_trackbars():
     cv2.namedWindow("Trackbars", 0)
-    
-    cv2.createTrackbar("ISO", "Trackbars", config['camera'].get('iso'), 800, callback)
-    cv2.createTrackbar("SHUTTER_SPEED", "Trackbars", config['camera'].get('shutter_speed, 10000, callback)
+
+    initial_iso = config['camera'].getint('iso')
+    cv2.createTrackbar("ISO", "Trackbars", initial_iso, 800, callback)
+    initial_shutter_speed = config['camera'].getint('shutter_speed')
+    cv2.createTrackbar("SHUTTER_SPEED", "Trackbars",
+                       initial_shutter_speed, 10000, callback)
     for i in ["MIN", "MAX"]:
-        v = 0 if i == "MIN" else 255
-        
+
         for j in "HSV":
-            cv2.createTrackbar(f'{j}_{i}', "Trackbars", config['threshold'].get(f'{j}_{i}', v), 255, callback)
+            initial_threshold = config['threshold'].getint(f'{j}_{i}')
+            cv2.createTrackbar(f'{j}_{i}', "Trackbars",
+                               initial_threshold, 255, callback)
 
 
-def get_trackbar_values():
+def get_threshold_values():
     values = []
 
     for i in ["MIN", "MAX"]:
         for j in "HSV":
-            v = cv2.getTrackbarPos("%s_%s" % (j, i), "Trackbars")
+            v = cv2.getTrackbarPos(f'{j}_{i}', "Trackbars")
+            config.set('threshold', f'{j}_{i}', str(v))
             values.append(v)
 
     return values
 
 
 def process_image(image, camera=None):
-    v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_trackbar_values()
+    v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_threshold_values()
 
     if camera:
-        camera.iso = cv2.getTrackbarPos("ISO", "Trackbars")
-        camera.shutter_speed = cv2.getTrackbarPos("SHUTTER_SPEED", "Trackbars")
-    
+        iso = cv2.getTrackbarPos("ISO", "Trackbars")
+        camera.iso = iso
+        config.set('camera', 'iso', str(iso))
+
+        shutter_speed = cv2.getTrackbarPos("SHUTTER_SPEED", "Trackbars")
+        camera.shutter_speed = shutter_speed
+        config.set('camera', 'shutter_speed', str(shutter_speed))
+
     hsv_frame = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
     threshold = cv2.inRange(
@@ -71,23 +87,21 @@ def process_image(image, camera=None):
 
 
 def main():
-    config = configparser.ConfigParser()
-    read_config(config)
+    read_config()
+    atexit.register(write_config)
     args = get_arguments()
 
-    setup_trackbars(config)
+    setup_trackbars()
 
     if args['source'] == 'camera':
-        
+
         from imutils.video.pivideostream import PiVideoStream
         videoStream = PiVideoStream(resolution=(
             640, 480), framerate=40).start()
         camera = videoStream.camera
         # Wait for automatic gain control to settle
         time.sleep(2)
-        # camera.shutter_speed = 4000
         camera.exposure_mode = 'spotlight'
-        camera.iso = config['camera'].get('iso', 400)
         awb_gains = camera.awb_gains
         camera.awb_mode = 'off'
         camera.awb_gains = awb_gains
