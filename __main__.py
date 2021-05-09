@@ -12,8 +12,10 @@ import os
 
 argument_parser = ArgumentParser(
     description='Target tracker for precision landing system')
-argument_parser.add_argument(
-    '--simulator', action='store_true', help='run tracker in Gazebo simulation mode')
+argument_parser.add_argument('-s', '--source',
+                        help='Choose either camera or simulator as source',
+                        required=True
+                        choices=['camera', 'simulator'])
 argument_parser.add_argument(
     '--telemetry', action='store_true', help='track aircraft telemetry')
 argument_parser.add_argument(
@@ -25,12 +27,12 @@ project_dir = os.path.dirname(__file__)
 
 
 class Tracker:
-    def __init__(self, simulator=False, telemetry=False, record=False, no_vehicle=False):
+    def __init__(self, source, telemetry=False, record=False, no_vehicle=False):
 
         if no_vehicle:
             self.vehicle = False
         else:
-            self.init_vehicle(simulator)
+            self.init_vehicle(source)
 
         self.normalized_target = None
         self.aircraft_distance_to_target = None
@@ -50,13 +52,13 @@ class Tracker:
         if self.record_enabled:
             self.init_record()
 
-        if simulator:
+        if source == 'simulator':
             self.track_gazebo()
-        else:
+        elif source == 'camera':
             self.track_pixhawk()
 
-    def init_vehicle(self, simulator):
-        vehicle_address = '127.0.0.1:14551' if simulator else '/dev/serial0'
+    def init_vehicle(self, source):
+        vehicle_address = '127.0.0.1:14551' if source == 'simulator' else '/dev/serial0'
         print(f'Connecting to {vehicle_address}')
         self.vehicle = connect(vehicle_address, wait_ready=False, baud=57600)
         print('Connected to vehicle')
@@ -314,7 +316,7 @@ class Tracker:
 def main():
     args = argument_parser.parse_args()
 
-    Tracker(simulator=args.simulator,
+    Tracker(source=args.source,
             telemetry=args.telemetry,
             record=args.record,
             no_vehicle=args.no_vehicle)
