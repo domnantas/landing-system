@@ -1,5 +1,4 @@
-from picamera.array import PiRGBArray
-from picamera import PiCamera
+from imutils.video.pivideostream import PiVideoStream
 from imutils.video import FPS
 import atexit
 import time
@@ -15,9 +14,9 @@ def handle_exit():
 
 atexit.register(handle_exit)
 
-camera = PiCamera(
-    resolution=(320, 240), framerate=40, sensor_mode=4)
-rawCapture = PiRGBArray(camera, size=(320, 240))
+videoStream = PiVideoStream(
+    resolution=(640, 480), framerate=40, sensor_mode=4).start()
+camera = videoStream.camera
 
 time.sleep(2)
 
@@ -28,10 +27,9 @@ camera.awb_gains = awb_gains
 fps_counter.start()
 print('Video started')
 
-for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
-    image = frame.array
+while True:
+    frame = videoStream.read()
     fps_counter.update()
-    rawCapture.truncate(0)
 
-    cv2.imshow('camera', image)
+    cv2.imshow('camera', frame)
     cv2.waitKey(1)

@@ -4,8 +4,11 @@ from operator import xor
 import time
 import configparser
 import atexit
+from imutils.video import FPS
 
 config = configparser.ConfigParser()
+
+fps = FPS().start()
 
 
 def read_config():
@@ -83,12 +86,18 @@ def process_image(image, camera=None):
     cv2.imshow("Original", image)
     cv2.imshow("Threshold", threshold)
 
-    cv2.waitKey(5)
+    cv2.waitKey(1)
+
+
+def handle_exit():
+    write_config()
+    fps.stop()
+    print(f'FPS: {fps.fps()}')
 
 
 def main():
     read_config()
-    atexit.register(write_config)
+    atexit.register(handle_exit)
     args = get_arguments()
 
     setup_trackbars()
@@ -108,6 +117,7 @@ def main():
 
         while True:
             image = videoStream.read()
+            fps.update()
             process_image(image, camera)
 
     elif args['source'] == 'simulator':

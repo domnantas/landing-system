@@ -1,11 +1,13 @@
 from argparse import ArgumentParser
 from pymavlink import quaternion
-from dronekit import connect
 from datetime import datetime
+from imutils.video import FPS
+from dronekit import connect
 from simple_pid import PID
 from math import sqrt
 import configparser
 import numpy as np
+import atexit
 import time
 import csv
 import cv2
@@ -48,8 +50,10 @@ class Tracker:
         self.roll_input = 0
         self.pitch_input = 0
 
-        self.camera_fps = 40
-        self.camera_resolution = (640, 480)
+        self.fps_counter = FPS()
+
+        self.camera_fps = 35
+        self.camera_resolution = (320, 240)
 
         self.init_control_PID()
 
@@ -60,6 +64,8 @@ class Tracker:
         self.record_enabled = record
         if self.record_enabled:
             self.init_record()
+
+        atexit.register(self.handle_exit)
 
         if source == 'simulator':
             self.track_gazebo()
@@ -125,12 +131,18 @@ class Tracker:
 
     def track_pixhawk(self):
         from imutils.video.pivideostream import PiVideoStream
-        videoStream = PiVideoStream(
-            resolution=self.camera_resolution, framerate=self.camera_fps, sensor_mode=4).start()
-        camera = videoStream.camera
+        from picamera.array import PiRGBArray
+        from picamera import PiCamera
+
+        camera = PiCamera(resolution=self.camera_resolution,
+                          framerate=self.camera_fps, sensor_mode=4)
+        rawCapture = PiRGBArray(camera, size=self.camera_resolution)
+        # videoStream = PiVideoStream(
+        #     resolution=self.camera_resolution, framerate=self.camera_fps, sensor_mode=4).start()
+        # camera = videoStream.camera
+        camera.exposure_mode = 'spotlight'
         # Wait for automatic gain control to settle
         time.sleep(2)
-        camera.exposure_mode = 'spotlight'
         awb_gains = camera.awb_gains
         camera.awb_mode = 'off'
         camera.awb_gains = awb_gains
@@ -138,35 +150,46 @@ class Tracker:
         camera.shutter_speed = config['camera'].getint('shutter_speed')
         camera.iso = config['camera'].getint('iso')
 
-        while True:
-            frame = videoStream.read()
-            self.track(frame)
+        self.fps_counter.start()
+
+        print('Starting tracking')
+
+        for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
+            image = frame.array
+            self.fps_counter.update()
+            self.track(image)
+            rawCapture.truncate(0)
+        # while True:
+        #     frame = videoStream.read()
+        #     self.fps_counter.update()
+        #     self.track(frame)
 
     def track(self, frame):
         self.find_target(frame)
-        frame = self.draw_crosshair(frame)
+
+        hud_frame = self.draw_crosshair(frame.copy())
 
         if self.normalized_target:
             if self.vehicle:
                 self.control_aircraft()
-            frame = self.draw_target(frame)
-            frame = self.draw_input(frame)
+            hud_frame = self.draw_target(hud_frame)
+            hud_frame = self.draw_input(hud_frame)
 
         if self.record_enabled:
-            self.video_writer.write(frame)
+            self.video_writer.write(hud_frame)
 
-        cv2.imshow('camera', frame)
+        cv2.imshow('camera', hud_frame)
         if self.telemetry_enabled:
             self.write_telemetry()
 
         # waitKey is necessary for imshow to work
-        cv2.waitKey(5)
+        cv2.waitKey(1)
 
     def find_target(self, frame):
         # Blur the image to filter out high frequency noise
-        frame = cv2.GaussianBlur(frame, (11, 11), 0)
+        # blurred_frame = cv2.GaussianBlur(frame, (11, 11), 0)
         # Convert to HSV colorspace because it makes tresholding based on color easier
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         # Create a mask for selected HSV color
         h_min = config['threshold'].getint('h_min')
         s_min = config['threshold'].getint('s_min')
@@ -177,7 +200,7 @@ class Tracker:
         v_max = config['threshold'].getint('v_max')
         target_max_threshold = (h_max, s_max, v_max)
         mask = cv2.inRange(
-            frame, target_min_threshold, target_max_threshold)
+            hsv_frame, target_min_threshold, target_max_threshold)
         # Remove small blobs in mask
         mask = cv2.erode(mask, None, iterations=2)
         mask = cv2.dilate(mask, None, iterations=2)
@@ -193,7 +216,6 @@ class Tracker:
             # Find center point of contour
             M = cv2.moments(largest_contour)
             target = (int(M['m10'] / M['m00']), int(M['m01'] / M['m00']))
-            centroid = cv2.circle(mask, target, 5, (255, 0, 0), -1)
             # Find normalized offsets
             (frame_height, frame_width) = frame.shape[:2]
             frame_width_middle = int(frame_width / 2)
@@ -312,6 +334,10 @@ class Tracker:
                 "distance_to_target": self.aircraft_distance_to_target
             })
 
+    def handle_exit(self):
+        self.fps_counter.stop()
+        print(f'FPS: {self.fps_counter.fps()}')
+
 
 def main():
     args = argument_parser.parse_args()
@@ -324,4 +350,8 @@ def main():
             no_vehicle=args.no_vehicle)
 
 
-main()
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
