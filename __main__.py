@@ -4,6 +4,7 @@ from dronekit import connect
 from datetime import datetime
 from simple_pid import PID
 from math import sqrt
+import configparser
 import numpy as np
 import time
 import csv
@@ -13,15 +14,23 @@ import os
 argument_parser = ArgumentParser(
     description='Target tracker for precision landing system')
 argument_parser.add_argument('-s', '--source',
-                        help='Choose either camera or simulator as source',
-                        required=True
-                        choices=['camera', 'simulator'])
+                             help='Choose either camera or simulator as source',
+                             required=True,
+                             choices=['camera', 'simulator'])
 argument_parser.add_argument(
     '--telemetry', action='store_true', help='track aircraft telemetry')
 argument_parser.add_argument(
     '--record', action='store_true', help='record processed video')
 argument_parser.add_argument(
     '--no-vehicle', action='store_true', help='do not connect to a vehicle')
+
+config = configparser.ConfigParser()
+
+
+def read_config():
+    with open('tracker.cfg', 'r') as configfile:
+        config.read_file(configfile)
+
 
 project_dir = os.path.dirname(__file__)
 
@@ -121,22 +130,19 @@ class Tracker:
         camera = videoStream.camera
         # Wait for automatic gain control to settle
         time.sleep(2)
-        # camera.exposure_mode = 'off'
-        camera.exposure_compensation = -25
-        # camera.shutter_speed = 1000
-        # camera.iso = 800
+        camera.exposure_mode = 'spotlight'
         awb_gains = camera.awb_gains
         camera.awb_mode = 'off'
         camera.awb_gains = awb_gains
+
+        camera.shutter_speed = config['camera'].getint('shutter_speed')
+        camera.iso = config['camera'].getint('iso')
 
         while True:
             frame = videoStream.read()
             self.track(frame)
 
     def track(self, frame):
-        (frame_height, frame_width) = frame.shape[:2]
-        # frame = cv2.resize(frame, (int(frame_width/2), int(frame_height/2)))
-
         self.find_target(frame)
         frame = self.draw_crosshair(frame)
 
@@ -161,21 +167,15 @@ class Tracker:
         frame = cv2.GaussianBlur(frame, (11, 11), 0)
         # Convert to HSV colorspace because it makes tresholding based on color easier
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        # Filter brightest pixels (target center)
-        center_min_threshold = (0, 0, 253)
-        center_max_threshold = (255, 255, 255)
-        center_mask = cv2.inRange(
-            frame, center_min_threshold, center_max_threshold)
-        cv2.imshow('debug', center_mask)
         # Create a mask for selected HSV color
-        # Infrared:
-        #   min: (0, 0, 1)
-        #   max: (255, 160, 255)
-        # Red:
-        #   min: (160, 0, 50)
-        #   max: (180, 255, 255)
-        target_min_threshold = (0, 0, 40)
-        target_max_threshold = (90, 255, 255)
+        h_min = config['threshold'].getint('h_min')
+        s_min = config['threshold'].getint('s_min')
+        v_min = config['threshold'].getint('v_min')
+        target_min_threshold = (h_min, s_min, v_min)
+        h_max = config['threshold'].getint('h_max')
+        s_max = config['threshold'].getint('s_max')
+        v_max = config['threshold'].getint('v_max')
+        target_max_threshold = (h_max, s_max, v_max)
         mask = cv2.inRange(
             frame, target_min_threshold, target_max_threshold)
         # Remove small blobs in mask
@@ -315,6 +315,8 @@ class Tracker:
 
 def main():
     args = argument_parser.parse_args()
+
+    read_config()
 
     Tracker(source=args.source,
             telemetry=args.telemetry,

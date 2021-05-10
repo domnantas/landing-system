@@ -117,7 +117,7 @@ def main():
 
         def ros_image_callback(ros_image, bridge):
             image = bridge.imgmsg_to_cv2(ros_image, 'bgr8')
-            process_image(image, range_filter)
+            process_image(image)
 
         # Initialize the ros node
         rospy.init_node('cv_bridge_node', anonymous=True)
