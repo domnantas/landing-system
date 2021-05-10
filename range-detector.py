@@ -106,7 +106,7 @@ def main():
 
         from imutils.video.pivideostream import PiVideoStream
         videoStream = PiVideoStream(resolution=(
-            640, 480), framerate=40).start()
+            320, 240), framerate=35).start()
         camera = videoStream.camera
         # Wait for automatic gain control to settle
         time.sleep(2)
