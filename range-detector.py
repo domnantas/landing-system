@@ -78,13 +78,15 @@ def process_image(image, camera=None):
 
     hsv_frame = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-    threshold = cv2.inRange(
+    white_threshold = cv2.inRange(hsv_frame, (0, 0, 253), (255, 255, 255))
+    color_threshold = cv2.inRange(
         hsv_frame, (v1_min, v2_min, v3_min), (v1_max, v2_max, v3_max))
+    mask = cv2.bitwise_or(white_threshold, color_threshold)
 
-    preview = cv2.bitwise_and(image, image, mask=threshold)
+    preview = cv2.bitwise_and(image, image, mask=mask)
     cv2.imshow("Preview", preview)
     cv2.imshow("Original", image)
-    cv2.imshow("Threshold", threshold)
+    cv2.imshow("Mask", mask)
 
     cv2.waitKey(1)
 

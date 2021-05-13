@@ -170,8 +170,7 @@ class Tracker:
         hud_frame = self.draw_crosshair(frame.copy())
 
         if self.normalized_target:
-            if self.vehicle:
-                self.control_aircraft()
+            self.control_aircraft()
             hud_frame = self.draw_target(hud_frame)
             hud_frame = self.draw_input(hud_frame)
 
@@ -199,8 +198,10 @@ class Tracker:
         s_max = config['threshold'].getint('s_max')
         v_max = config['threshold'].getint('v_max')
         target_max_threshold = (h_max, s_max, v_max)
-        mask = cv2.inRange(
+        white_threshold = cv2.inRange(hsv_frame, (0, 0, 253), (255, 255, 255))
+        color_threshold = cv2.inRange(
             hsv_frame, target_min_threshold, target_max_threshold)
+        mask = cv2.bitwise_or(white_threshold, color_threshold)
         # Remove small blobs in mask
         mask = cv2.erode(mask, None, iterations=2)
         mask = cv2.dilate(mask, None, iterations=2)
@@ -250,11 +251,12 @@ class Tracker:
         roll_limit = 20
         pitch_limit = 10
 
-        self.send_set_attitude_target(
-            roll=-self.roll_input * roll_limit,
-            pitch=self.pitch_input * pitch_limit,
-            thrust=throttle
-        )
+        if self.vehicle:
+            self.send_set_attitude_target(
+                roll=-self.roll_input * roll_limit,
+                pitch=self.pitch_input * pitch_limit,
+                thrust=throttle
+            )
 
     def send_set_attitude_target(self, roll=0, pitch=0, yaw=0, thrust=0.5):
         attitude = [np.radians(roll), np.radians(pitch), np.radians(yaw)]
