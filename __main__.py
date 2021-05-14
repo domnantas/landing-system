@@ -1,33 +1,59 @@
 from argparse import ArgumentParser
 from pymavlink import quaternion
-from dronekit import connect
 from datetime import datetime
+from imutils.video import FPS
+from dronekit import connect
 from simple_pid import PID
 from math import sqrt
+import configparser
 import numpy as np
+import atexit
 import time
 import csv
 import cv2
+import os
 
 argument_parser = ArgumentParser(
     description='Target tracker for precision landing system')
-argument_parser.add_argument(
-    '--simulator', action='store_true', help='run tracker in Gazebo simulation mode')
+argument_parser.add_argument('-s', '--source',
+                             help='Choose either camera or simulator as source',
+                             required=True,
+                             choices=['camera', 'simulator'])
 argument_parser.add_argument(
     '--telemetry', action='store_true', help='track aircraft telemetry')
 argument_parser.add_argument(
     '--record', action='store_true', help='record processed video')
+argument_parser.add_argument(
+    '--no-vehicle', action='store_true', help='do not connect to a vehicle')
+
+config = configparser.ConfigParser()
+
+
+def read_config():
+    with open('tracker.cfg', 'r') as configfile:
+        config.read_file(configfile)
+
+
+project_dir = os.path.dirname(__file__)
 
 
 class Tracker:
-    def __init__(self, simulator=False, telemetry=False, record=False):
-        vehicle_address = '127.0.0.1:14551' if simulator else '/dev/serial0'
-        print(f'Connecting to {vehicle_address}')
-        self.vehicle = connect(vehicle_address, wait_ready=False, baud=57600)
-        print('Connected to vehicle')
+    def __init__(self, source, telemetry=False, record=False, no_vehicle=False):
+
+        if no_vehicle:
+            self.vehicle = False
+        else:
+            self.init_vehicle(source)
 
         self.normalized_target = None
         self.aircraft_distance_to_target = None
+        self.roll_input = 0
+        self.pitch_input = 0
+
+        self.fps_counter = FPS()
+
+        self.camera_fps = 35
+        self.camera_resolution = (320, 240)
 
         self.init_control_PID()
 
@@ -39,17 +65,27 @@ class Tracker:
         if self.record_enabled:
             self.init_record()
 
-        if simulator:
+        atexit.register(self.handle_exit)
+
+        if source == 'simulator':
             self.track_gazebo()
-        else:
+        elif source == 'camera':
             self.track_pixhawk()
+
+    def init_vehicle(self, source):
+        vehicle_address = '127.0.0.1:14551' if source == 'simulator' else '/dev/serial0'
+        print(f'Connecting to {vehicle_address}')
+        self.vehicle = connect(vehicle_address, wait_ready=False, baud=57600)
+        print('Connected to vehicle')
 
     def init_telemetry(self):
         # Filename is curent timestamp
         current_datetime = datetime.now()
         timestamp = current_datetime.strftime('%Y-%m-%d_%H:%M:%S')
 
-        telemetry_file = open(f'telemetry/{timestamp}.csv', mode='w')
+        telemetry_path = os.path.join(
+            project_dir, f'telemetry/{timestamp}.csv')
+        telemetry_file = open(telemetry_path, mode='w')
         fieldnames = ['timestamp', 'normalized_target_horizontal',
                       'normalized_target_vertical', 'distance_to_target']
         self.telemetry = csv.DictWriter(telemetry_file, fieldnames)
@@ -61,8 +97,10 @@ class Tracker:
         timestamp = current_datetime.strftime('%Y-%m-%d_%H:%M:%S')
 
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        recording_path = os.path.join(
+            project_dir, f'recordings/{timestamp}.avi')
         self.video_writer = cv2.VideoWriter(
-            f'recordings/{timestamp}.avi', fourcc, 40.0, (640, 480))
+            recording_path, fourcc, self.camera_fps, self.camera_resolution)
 
     def init_control_PID(self):
         self.roll_pid = PID(1.2, 0.07, 0.05, setpoint=0,
@@ -93,61 +131,77 @@ class Tracker:
 
     def track_pixhawk(self):
         from imutils.video.pivideostream import PiVideoStream
-        videoStream = PiVideoStream(resolution=(
-            640, 480), framerate=40).start()
-        camera = videoStream.camera
-        camera.iso = 100
+        from picamera.array import PiRGBArray
+        from picamera import PiCamera
+
+        camera = PiCamera(resolution=self.camera_resolution,
+                          framerate=self.camera_fps, sensor_mode=4)
+        rawCapture = PiRGBArray(camera, size=self.camera_resolution)
+        # videoStream = PiVideoStream(
+        #     resolution=self.camera_resolution, framerate=self.camera_fps, sensor_mode=4).start()
+        # camera = videoStream.camera
+        camera.exposure_mode = 'spotlight'
         # Wait for automatic gain control to settle
         time.sleep(2)
-        camera.exposure_mode = 'off'
-        camera.shutter_speed = 5000
-        camera.exposure_compensation = 0
         awb_gains = camera.awb_gains
         camera.awb_mode = 'off'
         camera.awb_gains = awb_gains
 
-        while True:
-            frame = videoStream.read()
-            self.track(frame)
+        camera.shutter_speed = config['camera'].getint('shutter_speed')
+        camera.iso = config['camera'].getint('iso')
+
+        self.fps_counter.start()
+
+        print('Starting tracking')
+
+        for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
+            image = frame.array
+            self.fps_counter.update()
+            self.track(image)
+            rawCapture.truncate(0)
+        # while True:
+        #     frame = videoStream.read()
+        #     self.fps_counter.update()
+        #     self.track(frame)
 
     def track(self, frame):
-        (frame_height, frame_width) = frame.shape[:2]
-        # frame = cv2.resize(frame, (int(frame_width/2), int(frame_height/2)))
-
         self.find_target(frame)
-        frame = self.draw_crosshair(frame)
+
+        hud_frame = self.draw_crosshair(frame.copy())
 
         if self.normalized_target:
             self.control_aircraft()
-            frame = self.draw_target(frame)
-            frame = self.draw_input(frame)
+            hud_frame = self.draw_target(hud_frame)
+            hud_frame = self.draw_input(hud_frame)
 
         if self.record_enabled:
-            self.video_writer.write(frame)
+            self.video_writer.write(hud_frame)
 
-        cv2.imshow('camera', frame)
+        cv2.imshow('camera', hud_frame)
         if self.telemetry_enabled:
             self.write_telemetry()
 
         # waitKey is necessary for imshow to work
-        cv2.waitKey(5)
+        cv2.waitKey(1)
 
     def find_target(self, frame):
         # Blur the image to filter out high frequency noise
-        frame = cv2.GaussianBlur(frame, (11, 11), 0)
+        # blurred_frame = cv2.GaussianBlur(frame, (11, 11), 0)
         # Convert to HSV colorspace because it makes tresholding based on color easier
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         # Create a mask for selected HSV color
-        # Infrared:
-        #   min: (0, 0, 1)
-        #   max: (255, 160, 255)
-        # Red:
-        #   min: (0, 1, 0)
-        #   max: (10, 255, 255)
-        target_min_threshold = (0, 1, 0)
-        target_max_threshold = (10, 255, 255)
-        mask = cv2.inRange(
-            frame, target_min_threshold, target_max_threshold)
+        h_min = config['threshold'].getint('h_min')
+        s_min = config['threshold'].getint('s_min')
+        v_min = config['threshold'].getint('v_min')
+        target_min_threshold = (h_min, s_min, v_min)
+        h_max = config['threshold'].getint('h_max')
+        s_max = config['threshold'].getint('s_max')
+        v_max = config['threshold'].getint('v_max')
+        target_max_threshold = (h_max, s_max, v_max)
+        white_threshold = cv2.inRange(hsv_frame, (0, 0, 253), (255, 255, 255))
+        color_threshold = cv2.inRange(
+            hsv_frame, target_min_threshold, target_max_threshold)
+        mask = cv2.bitwise_or(white_threshold, color_threshold)
         # Remove small blobs in mask
         mask = cv2.erode(mask, None, iterations=2)
         mask = cv2.dilate(mask, None, iterations=2)
@@ -197,11 +251,12 @@ class Tracker:
         roll_limit = 20
         pitch_limit = 10
 
-        self.send_set_attitude_target(
-            roll=-self.roll_input * roll_limit,
-            pitch=self.pitch_input * pitch_limit,
-            thrust=throttle
-        )
+        if self.vehicle:
+            self.send_set_attitude_target(
+                roll=-self.roll_input * roll_limit,
+                pitch=self.pitch_input * pitch_limit,
+                thrust=throttle
+            )
 
     def send_set_attitude_target(self, roll=0, pitch=0, yaw=0, thrust=0.5):
         attitude = [np.radians(roll), np.radians(pitch), np.radians(yaw)]
@@ -281,13 +336,24 @@ class Tracker:
                 "distance_to_target": self.aircraft_distance_to_target
             })
 
+    def handle_exit(self):
+        self.fps_counter.stop()
+        print(f'FPS: {self.fps_counter.fps()}')
+
 
 def main():
     args = argument_parser.parse_args()
 
-    Tracker(simulator=args.simulator,
+    read_config()
+
+    Tracker(source=args.source,
             telemetry=args.telemetry,
-            record=args.record)
+            record=args.record,
+            no_vehicle=args.no_vehicle)
 
 
-main()
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

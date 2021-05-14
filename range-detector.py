@@ -1,121 +1,135 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-# USAGE: You need to specify a filter and "only one" image source
-#
-# (python) range-detector --filter RGB --image /path/to/image.png
-# or
-# (python) range-detector --filter HSV --webcam
-
 import cv2
 import argparse
 from operator import xor
 import time
+import configparser
+import atexit
+from imutils.video import FPS
+
+config = configparser.ConfigParser()
+
+fps = FPS().start()
+
+
+def read_config():
+    with open('tracker.cfg', 'r') as configfile:
+        config.read_file(configfile)
+
+
+def write_config():
+    with open('tracker.cfg', 'w') as configfile:
+        config.write(configfile)
+
+
+def get_arguments():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('-s', '--source',
+                    help='Choose either camera or simulator as source',
+                    required=True,
+                    choices=['camera', 'simulator'])
+    args = vars(ap.parse_args())
+
+    return args
 
 
 def callback(value):
     pass
 
 
-def setup_trackbars(range_filter):
+def setup_trackbars():
     cv2.namedWindow("Trackbars", 0)
 
+    initial_iso = config['camera'].getint('iso')
+    cv2.createTrackbar("ISO", "Trackbars", initial_iso, 800, callback)
+    initial_shutter_speed = config['camera'].getint('shutter_speed')
+    cv2.createTrackbar("SHUTTER_SPEED", "Trackbars",
+                       initial_shutter_speed, 10000, callback)
     for i in ["MIN", "MAX"]:
-        v = 0 if i == "MIN" else 255
 
-        for j in range_filter:
-            cv2.createTrackbar("%s_%s" % (j, i), "Trackbars", v, 255, callback)
-
-
-def get_arguments():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('-f', '--filter', required=True,
-                    help='Range filter. RGB or HSV')
-    source = ap.add_mutually_exclusive_group(required=True)
-    source.add_argument('-i', '--image',
-                        help='Path to the image')
-    source.add_argument('-w', '--webcam',
-                        help='Use webcam',
-                        action='store_true')
-    source.add_argument('-s', '--simulator',
-                        help='Use camera input from Gazebo',
-                        action='store_true',)
-    args = vars(ap.parse_args())
-
-    if not args['filter'].upper() in ['RGB', 'HSV']:
-        ap.error("Filter should be either RGB or HSV.")
-
-    return args
+        for j in "HSV":
+            initial_threshold = config['threshold'].getint(f'{j}_{i}')
+            cv2.createTrackbar(f'{j}_{i}', "Trackbars",
+                               initial_threshold, 255, callback)
 
 
-def get_trackbar_values(range_filter):
+def get_threshold_values():
     values = []
 
     for i in ["MIN", "MAX"]:
-        for j in range_filter:
-            v = cv2.getTrackbarPos("%s_%s" % (j, i), "Trackbars")
+        for j in "HSV":
+            v = cv2.getTrackbarPos(f'{j}_{i}', "Trackbars")
+            config.set('threshold', f'{j}_{i}', str(v))
             values.append(v)
 
     return values
 
 
-def process_image(image, range_filter):
-    v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_trackbar_values(
-        range_filter)
+def process_image(image, camera=None):
+    v1_min, v2_min, v3_min, v1_max, v2_max, v3_max = get_threshold_values()
 
-    if range_filter == 'RGB':
-        frame_to_thresh = image.copy()
-    else:
-        frame_to_thresh = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    if camera:
+        iso = cv2.getTrackbarPos("ISO", "Trackbars")
+        camera.iso = iso
+        config.set('camera', 'iso', str(iso))
 
-    thresh = cv2.inRange(
-        frame_to_thresh, (v1_min, v2_min, v3_min), (v1_max, v2_max, v3_max))
+        shutter_speed = cv2.getTrackbarPos("SHUTTER_SPEED", "Trackbars")
+        camera.shutter_speed = shutter_speed
+        config.set('camera', 'shutter_speed', str(shutter_speed))
 
-    preview = cv2.bitwise_and(image, image, mask=thresh)
+    hsv_frame = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+    white_threshold = cv2.inRange(hsv_frame, (0, 0, 253), (255, 255, 255))
+    color_threshold = cv2.inRange(
+        hsv_frame, (v1_min, v2_min, v3_min), (v1_max, v2_max, v3_max))
+    mask = cv2.bitwise_or(white_threshold, color_threshold)
+
+    preview = cv2.bitwise_and(image, image, mask=mask)
     cv2.imshow("Preview", preview)
     cv2.imshow("Original", image)
-    cv2.imshow("Thresh", thresh)
+    cv2.imshow("Mask", mask)
 
-    cv2.waitKey(5)
+    cv2.waitKey(1)
+
+
+def handle_exit():
+    write_config()
+    fps.stop()
+    print(f'FPS: {fps.fps()}')
 
 
 def main():
+    read_config()
+    atexit.register(handle_exit)
     args = get_arguments()
 
-    range_filter = args['filter'].upper()
+    setup_trackbars()
 
-    setup_trackbars(range_filter)
+    if args['source'] == 'camera':
 
-    if args['image']:
-        image = cv2.imread(args['image'])
-
-        process_image(image, range_filter)
-    elif args['webcam']:
         from imutils.video.pivideostream import PiVideoStream
         videoStream = PiVideoStream(resolution=(
-            640, 480), framerate=20).start()
+            320, 240), framerate=35).start()
         camera = videoStream.camera
-        camera.iso = 30
         # Wait for automatic gain control to settle
         time.sleep(2)
-        camera.shutter_speed = camera.exposure_speed
-        camera.exposure_mode = 'off'
+        camera.exposure_mode = 'spotlight'
         awb_gains = camera.awb_gains
         camera.awb_mode = 'off'
         camera.awb_gains = awb_gains
 
         while True:
             image = videoStream.read()
-            process_image(image, range_filter)
+            fps.update()
+            process_image(image, camera)
 
-    elif args['simulator']:
+    elif args['source'] == 'simulator':
         from sensor_msgs.msg import Image
         from cv_bridge import CvBridge
         import rospy
 
         def ros_image_callback(ros_image, bridge):
             image = bridge.imgmsg_to_cv2(ros_image, 'bgr8')
-            process_image(image, range_filter)
+            process_image(image)
 
         # Initialize the ros node
         rospy.init_node('cv_bridge_node', anonymous=True)
